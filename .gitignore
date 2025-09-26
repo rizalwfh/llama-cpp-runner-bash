@@ -1,0 +1,46 @@
+# Models directory (can be large files)
+models/*.gguf
+models/*.bin
+
+# Generated PM2 configuration files
+config/pm2/ecosystem-*.config.js
+config/pm2/monitoring.config.js
+config/pm2/cluster-*.config.js
+
+# Logs
+logs/*.log
+logs/*.out
+logs/*.err
+
+# PM2 specific
+.pm2/
+
+# Temporary files
+*.tmp
+*.temp
+/tmp/
+
+# Node.js (if any npm packages are added)
+node_modules/
+package-lock.json
+
+# System files
+.DS_Store
+Thumbs.db
+
+# IDE files
+.vscode/
+.idea/
+*.swp
+*.swo
+
+# Backup files
+*.bak
+*.backup
+
+# Environment files
+.env
+.env.local
+
+# Downloaded model metadata
+*.json.tmp
