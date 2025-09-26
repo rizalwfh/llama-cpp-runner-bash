@@ -9,13 +9,55 @@ if [[ -z "${MODELS_DIR:-}" ]] || [[ -z "${LOGS_DIR:-}" ]]; then
     return 1 2>/dev/null || exit 1
 fi
 
+# Validate model type compatibility
+validate_model_type_compatibility() {
+    local model_id="$1"
+    local intended_type="$2"
+
+    # Common patterns for different model types
+    local embedding_patterns="sentence-transformers|all-MiniLM|all-mpnet|bge-.*-en|gte-|e5-|instructor|embed"
+    local reranking_patterns="rerank|cross-encoder|bge-reranker|ms-marco"
+    local completion_patterns="instruct|chat|llama|phi|gemma|mistral|qwen|deepseek"
+
+    # Check model ID against patterns
+    if [[ "$intended_type" == "embedding" ]]; then
+        if [[ "$model_id" =~ $embedding_patterns ]]; then
+            log_message "INFO" "Model appears to be an embedding model (pattern match)"
+            return 0
+        else
+            log_message "WARN" "Model may not be optimized for embeddings. Common embedding models include sentence-transformers, BGE, GTE, E5 series."
+        fi
+    elif [[ "$intended_type" == "reranking" ]]; then
+        if [[ "$model_id" =~ $reranking_patterns ]]; then
+            log_message "INFO" "Model appears to be a reranking model (pattern match)"
+            return 0
+        else
+            log_message "WARN" "Model may not be optimized for reranking. Look for models with 'reranker' or 'cross-encoder' in the name."
+        fi
+    elif [[ "$intended_type" == "completion" ]]; then
+        if [[ "$model_id" =~ $completion_patterns ]]; then
+            log_message "INFO" "Model appears to be a completion/chat model (pattern match)"
+            return 0
+        else
+            log_message "WARN" "Model may not be optimized for text completion. Look for models with 'instruct', 'chat', or language model names."
+        fi
+    fi
+
+    # Always return success - warnings are informational
+    return 0
+}
+
 # Validate HuggingFace model and find compatible files
 validate_and_find_model_files() {
     local model_id="$1"
+    local model_type="${2:-completion}"
     local api_url="https://huggingface.co/api/models/$model_id"
     local hf_url="https://huggingface.co/$model_id"
 
     log_message "INFO" "Validating model existence on HuggingFace..."
+
+    # Validate model type compatibility
+    validate_model_type_compatibility "$model_id" "$model_type"
 
     # Get API response and check status
     local api_response
@@ -88,6 +130,7 @@ validate_and_find_model_files() {
 # Download model from HuggingFace
 download_model() {
     local model_id="$1"
+    local model_type="${2:-completion}"
     local model_filename=$(get_model_filename "$model_id")
     local model_path=$(get_model_path "$model_id")
 
@@ -109,7 +152,7 @@ download_model() {
 
     # Validate model and find available files
     local files_info
-    if ! files_info=$(validate_and_find_model_files "$model_id"); then
+    if ! files_info=$(validate_and_find_model_files "$model_id" "$model_type"); then
         return 1
     fi
 

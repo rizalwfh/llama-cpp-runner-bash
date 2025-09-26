@@ -16,6 +16,9 @@ generate_pm2_config() {
     local port="$3"
     local context_size="$4"
     local threads="$5"
+    local model_type="${6:-completion}"
+    local pooling_strategy="${7:-}"
+    local microbatch_size="${8:-}"
 
     local config_file="$PM2_CONFIG_DIR/ecosystem-$instance_name.config.js"
     local server_binary=$(detect_llama_server)
@@ -28,6 +31,44 @@ generate_pm2_config() {
     log_message "INFO" "Generating PM2 config: $config_file"
     log_message "INFO" "Using server binary: $server_binary"
 
+    # Build args array based on model type
+    local args_array="[
+        '-m', '$model_path',
+        '--port', '$port',
+        '--host', '0.0.0.0',
+        '--threads', '$threads',"
+
+    # Add model-type specific arguments
+    if [[ "$model_type" == "embedding" ]]; then
+        args_array="$args_array
+        '--embedding',"
+        if [[ -n "$pooling_strategy" ]]; then
+            args_array="$args_array
+        '--pooling', '$pooling_strategy',"
+        fi
+        if [[ -n "$microbatch_size" ]]; then
+            args_array="$args_array
+        '-ub', '$microbatch_size',"
+        fi
+    elif [[ "$model_type" == "reranking" ]]; then
+        args_array="$args_array
+        '--reranking',"
+    elif [[ "$model_type" == "completion" ]]; then
+        args_array="$args_array
+        '--ctx-size', '$context_size',
+        '--n-predict', '-1',
+        '--temp', '0.7',
+        '--repeat-penalty', '1.1',
+        '--batch-size', '512',
+        '--keep', '-1',"
+    fi
+
+    # Add common arguments
+    args_array="$args_array
+        '--mlock',
+        '--no-mmap'
+      ]"
+
     # Create PM2 ecosystem configuration
     cat > "$config_file" << EOF
 module.exports = {
@@ -35,20 +76,7 @@ module.exports = {
     {
       name: '$instance_name',
       script: '$server_binary',
-      args: [
-        '-m', '$model_path',
-        '--port', '$port',
-        '--host', '0.0.0.0',
-        '--threads', '$threads',
-        '--ctx-size', '$context_size',
-        '--n-predict', '-1',
-        '--temp', '0.7',
-        '--repeat-penalty', '1.1',
-        '--batch-size', '512',
-        '--keep', '-1',
-        '--mlock',
-        '--no-mmap'
-      ],
+      args: $args_array,
       cwd: '$SCRIPT_DIR',
       instances: 1,
       exec_mode: 'fork',
@@ -58,7 +86,8 @@ module.exports = {
       env: {
         NODE_ENV: 'production',
         LLAMA_SERVER_PORT: '$port',
-        LLAMA_SERVER_HOST: '0.0.0.0'
+        LLAMA_SERVER_HOST: '0.0.0.0',
+        LLAMA_MODEL_TYPE: '$model_type'
       },
       error_file: '$LOGS_DIR/${instance_name}-error.log',
       out_file: '$LOGS_DIR/${instance_name}-out.log',

@@ -7,6 +7,7 @@ A production-ready bash-based runner for serving large language models from Hugg
 - 🚀 **Easy Setup**: Interactive prompts with comprehensive validation and error recovery
 - 📦 **HuggingFace Integration**: Automatic model download with resume capability and smart file selection
 - 🔄 **PM2 Process Management**: Production-ready process management with auto-restart and memory limits
+- 🎛️ **Instance Lifecycle Management**: Built-in start/stop/restart/delete commands with health checks and validation
 - 💾 **GGUF Model Support**: Optimized for GGUF quantized models with intelligent selection (Q4_0, Q4_K_M preferred)
 - 🔍 **Health Monitoring**: Built-in health checks, startup validation, and monitoring
 - 📊 **Logging**: Comprehensive logging with timestamps and structured output
@@ -64,13 +65,13 @@ sudo cp llama-server /usr/local/bin/
 
 1. **Clone or download this runner**:
    ```bash
-   git clone <repository-url>
+   git clone https://github.com/rizalwfh/llama-cpp-runner-bash.git llama-cpp-runner
    cd llama-cpp-runner
    ```
 
 2. **Run the interactive setup**:
    ```bash
-   ./llama-runner.sh
+   ./runner.sh
    ```
 
 3. **Follow the prompts**:
@@ -83,31 +84,100 @@ sudo cp llama-server /usr/local/bin/
    - Health check: `http://localhost:8080/health`
    - Web UI: `http://localhost:8080` (built-in web interface)
 
+5. **Manage your instances**:
+   ```bash
+   ./runner.sh --list              # List all instances
+   ./runner.sh --stop my-instance  # Stop an instance
+   ./runner.sh --start my-instance # Start an instance
+   ./runner.sh --delete my-instance # Delete an instance
+   ```
+
 ## 📖 Usage
 
 ### Interactive Mode (Recommended)
 
 ```bash
-./llama-runner.sh
+./runner.sh
+```
+
+### Common Workflows
+
+#### Daily Instance Management
+```bash
+# Check what's running
+./runner.sh --list
+
+# Stop instances to free resources
+./runner.sh --stop large-model
+./runner.sh --stop phi3-mini
+
+# Start only what you need
+./runner.sh --start gemma-2b
+
+# Restart if having issues
+./runner.sh --restart gemma-2b
+```
+
+#### Cleanup and Maintenance
+```bash
+# Remove unused instances
+./runner.sh --delete old-model
+
+# Clean up disk space
+./runner.sh --cleanup
+
+# Check system status
+./runner.sh --status
 ```
 
 ### Command Line Options
 
+#### Information & Utilities
 ```bash
 # Show help
-./llama-runner.sh --help
+./runner.sh --help
 
 # List running PM2 processes
-./llama-runner.sh --list
+./runner.sh --list
 
 # Show detailed status
-./llama-runner.sh --status
+./runner.sh --status
 
 # Clean up old models and logs
-./llama-runner.sh --cleanup
+./runner.sh --cleanup
 
 # Enable debug mode for troubleshooting
-DEBUG=1 ./llama-runner.sh
+DEBUG=1 ./runner.sh
+```
+
+#### Instance Management
+```bash
+# Start a stopped instance
+./runner.sh --start <instance-name>
+
+# Stop a running instance
+./runner.sh --stop <instance-name>
+
+# Restart an instance
+./runner.sh --restart <instance-name>
+
+# Delete an instance (with confirmation)
+./runner.sh --delete <instance-name>
+```
+
+**Examples:**
+```bash
+# Start the 'phi3-mini' instance
+./runner.sh --start phi3-mini
+
+# Stop the 'gemma-7b' instance
+./runner.sh --stop gemma-7b
+
+# Restart the 'mistral' instance with health check
+./runner.sh --restart mistral
+
+# Delete the 'old-model' instance and cleanup files
+./runner.sh --delete old-model
 ```
 
 ## 🔧 Configuration
@@ -155,9 +225,43 @@ During interactive setup, you can customize:
 - Requires 5GB+ free disk space for downloads
 - Models with resume support if download is interrupted
 
-## 🛠️ PM2 Management
+## 🛠️ Instance Management
 
-### Basic Commands
+### Using runner.sh (Recommended)
+
+The runner script provides enhanced instance management with health checks, validation, and better error messages:
+
+```bash
+# List all instances with status
+./runner.sh --list
+
+# Start an instance (with health check)
+./runner.sh --start <instance-name>
+
+# Stop an instance safely
+./runner.sh --stop <instance-name>
+
+# Restart with health validation
+./runner.sh --restart <instance-name>
+
+# Delete instance and cleanup files
+./runner.sh --delete <instance-name>
+
+# View detailed status
+./runner.sh --status
+```
+
+**Benefits of using runner.sh commands:**
+- ✅ **Health checks** after start/restart operations
+- ✅ **Instance validation** before operations
+- ✅ **Smart error messages** and troubleshooting tips
+- ✅ **Safe deletion** with confirmation prompts
+- ✅ **Automatic cleanup** of configuration files and logs
+- ✅ **Port discovery** and service URL display
+
+### Direct PM2 Commands
+
+For advanced users who prefer direct PM2 control:
 
 ```bash
 # List all processes
@@ -166,22 +270,9 @@ pm2 list
 # View logs for a specific instance
 pm2 logs <instance-name>
 
-# Restart an instance
-pm2 restart <instance-name>
-
-# Stop an instance
-pm2 stop <instance-name>
-
-# Delete an instance
-pm2 delete <instance-name>
-
-# Monitor all processes
+# Monitor all processes in real-time
 pm2 monit
-```
 
-### Advanced Management
-
-```bash
 # Save current PM2 process list
 pm2 save
 
@@ -199,7 +290,7 @@ pm2 show <instance-name>
 
 ```
 llama-cpp-runner/
-├── llama-runner.sh          # Main runner script (496 lines)
+├── runner.sh          # Main runner script (496 lines)
 ├── lib/                     # Library functions
 │   ├── utils.sh             # Core utilities, validation, logging (275 lines)
 │   ├── download.sh          # HuggingFace download with resume (312 lines)
@@ -257,6 +348,26 @@ curl -X POST http://localhost:8080/v1/chat/completions \
 
 ## 🔧 Troubleshooting
 
+### Model Type Selection Guide
+
+- **Choose Completion** for:
+  - Text generation and chat applications
+  - Question answering systems
+  - Creative writing and content generation
+  - General language understanding tasks
+
+- **Choose Embedding** for:
+  - Semantic search applications
+  - Text similarity and clustering
+  - Recommendation systems
+  - Information retrieval tasks
+
+- **Choose Reranking** for:
+  - Document ranking and retrieval
+  - Search result reordering
+  - Relevance scoring
+  - Information filtering systems
+
 ### Common Issues
 
 1. **Model not found**:
@@ -285,11 +396,18 @@ curl -X POST http://localhost:8080/v1/chat/completions \
    - Use smaller quantized models (Q4_0, Q4_K_M)
    - Monitor with: `pm2 monit`
 
+6. **Instance management issues**:
+   - Use `./runner.sh --list` to see all available instances
+   - Instance not found: Check the exact name with `./runner.sh --list`
+   - Health check fails: Wait a few seconds and try `./runner.sh --restart <instance>`
+   - Can't start instance: Check if another process is using the port
+   - Delete confirmation not working: Make sure to type `y` (lowercase) to confirm
+
 ### Debug Mode
 
 ```bash
 # Enable verbose logging and detailed tracing
-DEBUG=1 ./llama-runner.sh
+DEBUG=1 ./runner.sh
 
 # Debug output includes:
 # - API validation responses
@@ -300,6 +418,8 @@ DEBUG=1 ./llama-runner.sh
 
 # Check PM2 logs for runtime issues
 pm2 logs <instance-name>
+# Or use the runner for better error context
+./runner.sh --list
 
 # Monitor system resources in real-time
 pm2 monit
@@ -345,6 +465,11 @@ The runner uses intelligent model file selection:
 4. Select optimal quantization based on preferences
 5. Download with resume support and integrity checks
 
+### **Model Type Compatibility**:
+- **Completion Models**: Standard language models for text generation
+- **Embedding Models**: Models trained for text representation (sentence-transformers, BGE, GTE)
+- **Reranking Models**: Cross-encoder models for document ranking
+
 ### **File Naming Convention**:
 - Downloaded files: `{username}_{model-name}.gguf`
 - Temporary files: `/tmp/{random}_{model}.gguf`
@@ -358,11 +483,11 @@ Contributions are welcome! Please feel free to submit issues, feature requests, 
 
 ```bash
 # Make scripts executable
-chmod +x llama-runner.sh
+chmod +x runner.sh
 chmod +x lib/*.sh
 
 # Test the script with debug mode
-DEBUG=1 ./llama-runner.sh --help
+DEBUG=1 ./runner.sh --help
 ```
 
 ## 📄 License

@@ -182,7 +182,7 @@ print_banner() {
 }
 
 print_usage() {
-    echo "Usage: $0 [OPTIONS]"
+    echo "Usage: $0 [OPTIONS] [INSTANCE_NAME]"
     echo ""
     echo "Options:"
     echo "  -h, --help           Show this help message"
@@ -190,7 +190,21 @@ print_usage() {
     echo "  -s, --status         Show detailed status of all instances"
     echo "  -c, --cleanup        Clean up old models and logs"
     echo ""
+    echo "Instance Management:"
+    echo "  --start <instance>   Start a stopped PM2 instance"
+    echo "  --stop <instance>    Stop a running PM2 instance"
+    echo "  --restart <instance> Restart a PM2 instance"
+    echo "  --delete <instance>  Delete a PM2 instance and its configuration"
+    echo ""
     echo "Interactive mode (default): Run without options to start interactive setup"
+    echo ""
+    echo "Examples:"
+    echo "  $0                          # Start interactive setup"
+    echo "  $0 --list                   # Show all PM2 processes"
+    echo "  $0 --start my-model         # Start 'my-model' instance"
+    echo "  $0 --stop my-model          # Stop 'my-model' instance"
+    echo "  $0 --restart my-model       # Restart 'my-model' instance"
+    echo "  $0 --delete my-model        # Delete 'my-model' instance"
 }
 
 interactive_setup() {
@@ -213,6 +227,35 @@ interactive_setup() {
             echo -e "${RED}❌ Invalid model ID format. Please use: username/model-name${NC}"
             echo ""
         fi
+    done
+
+    # Get model type from user
+    while true; do
+        echo ""
+        echo -e "${BLUE}🤖 Select Model Type:${NC}"
+        echo "   1) Completion/Chat - For text generation and conversations"
+        echo "   2) Embedding - For generating text embeddings/vectors"
+        echo "   3) Reranking - For document reranking and relevance scoring"
+        echo ""
+        read -p "Model type (1-3): " model_type_choice
+
+        case "$model_type_choice" in
+            1)
+                model_type="completion"
+                break
+                ;;
+            2)
+                model_type="embedding"
+                break
+                ;;
+            3)
+                model_type="reranking"
+                break
+                ;;
+            *)
+                echo -e "${RED}❌ Invalid choice. Please select 1, 2, or 3.${NC}"
+                ;;
+        esac
     done
 
     # Get PM2 instance name
@@ -240,6 +283,38 @@ interactive_setup() {
             echo -e "${RED}❌ Invalid instance name. Use only alphanumeric characters, hyphens, and underscores.${NC}"
         fi
     done
+
+    # Get embedding-specific configuration
+    if [[ "$model_type" == "embedding" ]]; then
+        while true; do
+            echo ""
+            echo -e "${BLUE}🎯 Embedding Configuration:${NC}"
+            echo "   Pooling Strategy:"
+            echo "   • cls - Use [CLS] token (BERT-style)"
+            echo "   • mean - Mean of all token embeddings"
+            echo "   • none - Return all token embeddings (no pooling)"
+            echo ""
+            read -p "Pooling strategy (cls/mean/none, default: cls): " pooling_strategy
+            pooling_strategy=${pooling_strategy:-cls}
+
+            if [[ "$pooling_strategy" =~ ^(cls|mean|none)$ ]]; then
+                break
+            else
+                echo -e "${RED}❌ Invalid pooling strategy. Use cls, mean, or none.${NC}"
+            fi
+        done
+
+        while true; do
+            read -p "Microbatch size (default: 8192): " microbatch_size
+            microbatch_size=${microbatch_size:-8192}
+
+            if [[ "$microbatch_size" =~ ^[0-9]+$ ]] && [[ $microbatch_size -ge 1 ]] && [[ $microbatch_size -le 32768 ]]; then
+                break
+            else
+                echo -e "${RED}❌ Invalid microbatch size. Must be between 1-32768.${NC}"
+            fi
+        done
+    fi
 
     # Get optional configuration
     echo ""
@@ -285,9 +360,16 @@ interactive_setup() {
     echo ""
     echo -e "${GREEN}📋 Configuration Summary:${NC}"
     echo "   Model ID: $model_id"
+    echo "   Model Type: $model_type"
     echo "   Instance: $instance_name"
     echo "   Port: $port"
-    echo "   Context Size: $context_size"
+    if [[ "$model_type" == "embedding" ]]; then
+        echo "   Pooling Strategy: $pooling_strategy"
+        echo "   Microbatch Size: $microbatch_size"
+    fi
+    if [[ "$model_type" == "completion" ]]; then
+        echo "   Context Size: $context_size"
+    fi
     echo "   Threads: $threads"
     echo ""
 
@@ -311,7 +393,7 @@ interactive_setup() {
 
     # Download model with error recovery
     echo -e "${YELLOW}📥 Downloading model...${NC}"
-    if ! model_path=$(download_model "$model_id"); then
+    if ! model_path=$(download_model "$model_id" "$model_type"); then
         echo -e "${RED}❌ Failed to download model${NC}"
         echo -e "${BLUE}💡 Troubleshooting tips:${NC}"
         echo "   • Check internet connection"
@@ -342,7 +424,7 @@ interactive_setup() {
 
     # Generate PM2 configuration with error handling
     echo -e "${YELLOW}⚙️  Generating PM2 configuration...${NC}"
-    if ! config_file=$(generate_pm2_config "$instance_name" "$model_path" "$final_port" "$context_size" "$threads"); then
+    if ! config_file=$(generate_pm2_config "$instance_name" "$model_path" "$final_port" "$context_size" "$threads" "$model_type" "${pooling_strategy:-}" "${microbatch_size:-}"); then
         echo -e "${RED}❌ Failed to generate PM2 configuration${NC}"
         exit 1
     fi
@@ -376,10 +458,20 @@ interactive_setup() {
         echo ""
         echo -e "${BLUE}📊 Service Information:${NC}"
         echo "   • Instance Name: $instance_name"
-        echo "   • Model: $model_id"
+        echo "   • Model: $model_id ($model_type)"
         echo "   • Server URL: http://localhost:$final_port"
         echo "   • Health Check: http://localhost:$final_port/health"
-        echo "   • API Documentation: http://localhost:$final_port (web UI)"
+        if [[ "$model_type" == "completion" ]]; then
+            echo "   • API Documentation: http://localhost:$final_port (web UI)"
+            echo "   • Chat Completions: http://localhost:$final_port/v1/chat/completions"
+            echo "   • Text Completions: http://localhost:$final_port/completion"
+        elif [[ "$model_type" == "embedding" ]]; then
+            echo "   • Embeddings (OpenAI): http://localhost:$final_port/v1/embeddings"
+            echo "   • Embeddings (Native): http://localhost:$final_port/embedding"
+        elif [[ "$model_type" == "reranking" ]]; then
+            echo "   • Reranking (OpenAI): http://localhost:$final_port/v1/rerank"
+            echo "   • Reranking (Native): http://localhost:$final_port/reranking"
+        fi
         echo ""
         echo -e "${BLUE}📋 PM2 Management Commands:${NC}"
         echo "   • View logs: pm2 logs $instance_name"
@@ -396,7 +488,7 @@ interactive_setup() {
         echo "   3. Check if port $final_port is available: netstat -tuln | grep $final_port"
         echo "   4. Monitor system resources: pm2 monit"
         echo "   5. Try manual start for debugging:"
-        echo "      DEBUG=1 ./llama-runner.sh"
+        echo "      DEBUG=1 ./runner.sh"
         echo ""
         echo -e "${YELLOW}⚠️  The service may still be starting up. You can check its status with:${NC}"
         echo "   pm2 list"
@@ -467,6 +559,213 @@ cleanup_old_files() {
     echo -e "${GREEN}✅ Cleanup completed${NC}"
 }
 
+start_instance() {
+    local instance_name="$1"
+
+    if [[ -z "$instance_name" ]]; then
+        echo -e "${RED}❌ Instance name is required${NC}"
+        echo "Usage: $0 --start <instance-name>"
+        return 1
+    fi
+
+    # Check if instance exists
+    if ! pm2_process_exists "$instance_name"; then
+        echo -e "${RED}❌ Instance '$instance_name' not found${NC}"
+        echo -e "${BLUE}💡 Use '$0 --list' to see available instances${NC}"
+        return 1
+    fi
+
+    # Get current status
+    local current_status=$(get_pm2_process_status "$instance_name")
+
+    if [[ "$current_status" == "online" ]]; then
+        echo -e "${YELLOW}⚠️  Instance '$instance_name' is already running${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}🚀 Starting instance: $instance_name${NC}"
+
+    if ! pm2 start "$instance_name"; then
+        echo -e "${RED}❌ Failed to start instance: $instance_name${NC}"
+        echo -e "${BLUE}💡 Check logs with: pm2 logs $instance_name${NC}"
+        return 1
+    fi
+
+    # Get port from PM2 configuration
+    local config_file="$PM2_CONFIG_DIR/ecosystem-$instance_name.config.js"
+    local port=""
+
+    if [[ -f "$config_file" ]]; then
+        port=$(grep -o "port.*[0-9]\+" "$config_file" | grep -o "[0-9]\+" | head -1)
+    fi
+
+    if [[ -n "$port" ]]; then
+        echo -e "${YELLOW}🔍 Performing health check...${NC}"
+        if wait_for_health "http://localhost:$port/health" 30; then
+            echo -e "${GREEN}✅ Instance '$instance_name' started successfully!${NC}"
+            echo -e "${BLUE}📊 Service URL: http://localhost:$port${NC}"
+        else
+            echo -e "${YELLOW}⚠️  Instance started but health check failed${NC}"
+            echo -e "${BLUE}💡 Check logs with: pm2 logs $instance_name${NC}"
+        fi
+    else
+        echo -e "${GREEN}✅ Instance '$instance_name' started${NC}"
+        echo -e "${BLUE}💡 Check status with: pm2 list${NC}"
+    fi
+}
+
+stop_instance() {
+    local instance_name="$1"
+
+    if [[ -z "$instance_name" ]]; then
+        echo -e "${RED}❌ Instance name is required${NC}"
+        echo "Usage: $0 --stop <instance-name>"
+        return 1
+    fi
+
+    # Check if instance exists
+    if ! pm2_process_exists "$instance_name"; then
+        echo -e "${RED}❌ Instance '$instance_name' not found${NC}"
+        echo -e "${BLUE}💡 Use '$0 --list' to see available instances${NC}"
+        return 1
+    fi
+
+    # Get current status
+    local current_status=$(get_pm2_process_status "$instance_name")
+
+    if [[ "$current_status" == "stopped" ]]; then
+        echo -e "${YELLOW}⚠️  Instance '$instance_name' is already stopped${NC}"
+        return 0
+    fi
+
+    echo -e "${YELLOW}🛑 Stopping instance: $instance_name${NC}"
+
+    if ! pm2 stop "$instance_name"; then
+        echo -e "${RED}❌ Failed to stop instance: $instance_name${NC}"
+        return 1
+    fi
+
+    echo -e "${GREEN}✅ Instance '$instance_name' stopped successfully${NC}"
+    log_message "INFO" "Instance stopped: $instance_name"
+}
+
+delete_instance() {
+    local instance_name="$1"
+
+    if [[ -z "$instance_name" ]]; then
+        echo -e "${RED}❌ Instance name is required${NC}"
+        echo "Usage: $0 --delete <instance-name>"
+        return 1
+    fi
+
+    # Check if instance exists
+    if ! pm2_process_exists "$instance_name"; then
+        echo -e "${RED}❌ Instance '$instance_name' not found${NC}"
+        echo -e "${BLUE}💡 Use '$0 --list' to see available instances${NC}"
+        return 1
+    fi
+
+    echo -e "${YELLOW}🗑️  Deleting instance: $instance_name${NC}"
+    echo -e "${YELLOW}⚠️  This will permanently remove the PM2 process and configuration${NC}"
+
+    read -p "Are you sure you want to delete '$instance_name'? (y/N): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]$ ]]; then
+        echo -e "${BLUE}Operation cancelled${NC}"
+        return 0
+    fi
+
+    # Stop and delete PM2 process
+    if ! pm2 delete "$instance_name"; then
+        echo -e "${RED}❌ Failed to delete PM2 process: $instance_name${NC}"
+        return 1
+    fi
+
+    # Remove configuration file
+    local config_file="$PM2_CONFIG_DIR/ecosystem-$instance_name.config.js"
+    if [[ -f "$config_file" ]]; then
+        echo -e "${YELLOW}🗑️  Removing configuration file...${NC}"
+        rm -f "$config_file"
+    fi
+
+    # Clean up instance-specific logs
+    local log_files=(
+        "$LOGS_DIR/$instance_name-error.log"
+        "$LOGS_DIR/$instance_name-out.log"
+        "$LOGS_DIR/$instance_name-combined.log"
+    )
+
+    for log_file in "${log_files[@]}"; do
+        if [[ -f "$log_file" ]]; then
+            echo -e "${YELLOW}🗑️  Removing log file: $(basename "$log_file")${NC}"
+            rm -f "$log_file"
+        fi
+    done
+
+    # Ask about model file cleanup
+    echo ""
+    echo -e "${BLUE}📦 Model files cleanup:${NC}"
+    echo -e "${YELLOW}⚠️  Do you want to remove model files? This will delete downloaded model files that may be used by other instances.${NC}"
+    read -p "Remove model files? (y/N): " remove_models
+
+    if [[ "$remove_models" =~ ^[Yy]$ ]]; then
+        echo -e "${YELLOW}🗑️  Cleaning up old model files...${NC}"
+        find "$MODELS_DIR" -name "*.gguf" -mtime +1 -delete 2>/dev/null || true
+        echo -e "${GREEN}✅ Model cleanup completed${NC}"
+    fi
+
+    echo -e "${GREEN}✅ Instance '$instance_name' deleted successfully${NC}"
+    log_message "INFO" "Instance deleted: $instance_name"
+}
+
+restart_instance() {
+    local instance_name="$1"
+
+    if [[ -z "$instance_name" ]]; then
+        echo -e "${RED}❌ Instance name is required${NC}"
+        echo "Usage: $0 --restart <instance-name>"
+        return 1
+    fi
+
+    # Check if instance exists
+    if ! pm2_process_exists "$instance_name"; then
+        echo -e "${RED}❌ Instance '$instance_name' not found${NC}"
+        echo -e "${BLUE}💡 Use '$0 --list' to see available instances${NC}"
+        return 1
+    fi
+
+    echo -e "${YELLOW}🔄 Restarting instance: $instance_name${NC}"
+
+    if ! pm2 restart "$instance_name"; then
+        echo -e "${RED}❌ Failed to restart instance: $instance_name${NC}"
+        echo -e "${BLUE}💡 Check logs with: pm2 logs $instance_name${NC}"
+        return 1
+    fi
+
+    # Get port from PM2 configuration
+    local config_file="$PM2_CONFIG_DIR/ecosystem-$instance_name.config.js"
+    local port=""
+
+    if [[ -f "$config_file" ]]; then
+        port=$(grep -o "port.*[0-9]\+" "$config_file" | grep -o "[0-9]\+" | head -1)
+    fi
+
+    if [[ -n "$port" ]]; then
+        echo -e "${YELLOW}🔍 Performing health check...${NC}"
+        if wait_for_health "http://localhost:$port/health" 30; then
+            echo -e "${GREEN}✅ Instance '$instance_name' restarted successfully!${NC}"
+            echo -e "${BLUE}📊 Service URL: http://localhost:$port${NC}"
+        else
+            echo -e "${YELLOW}⚠️  Instance restarted but health check failed${NC}"
+            echo -e "${BLUE}💡 Check logs with: pm2 logs $instance_name${NC}"
+        fi
+    else
+        echo -e "${GREEN}✅ Instance '$instance_name' restarted${NC}"
+        echo -e "${BLUE}💡 Check status with: pm2 list${NC}"
+    fi
+
+    log_message "INFO" "Instance restarted: $instance_name"
+}
+
 main() {
     case "${1:-}" in
         -h|--help)
@@ -480,6 +779,38 @@ main() {
             ;;
         -c|--cleanup)
             cleanup_old_files
+            ;;
+        --start)
+            if [[ -z "${2:-}" ]]; then
+                echo -e "${RED}❌ Instance name is required for --start${NC}"
+                echo "Usage: $0 --start <instance-name>"
+                exit 1
+            fi
+            start_instance "$2"
+            ;;
+        --stop)
+            if [[ -z "${2:-}" ]]; then
+                echo -e "${RED}❌ Instance name is required for --stop${NC}"
+                echo "Usage: $0 --stop <instance-name>"
+                exit 1
+            fi
+            stop_instance "$2"
+            ;;
+        --restart)
+            if [[ -z "${2:-}" ]]; then
+                echo -e "${RED}❌ Instance name is required for --restart${NC}"
+                echo "Usage: $0 --restart <instance-name>"
+                exit 1
+            fi
+            restart_instance "$2"
+            ;;
+        --delete)
+            if [[ -z "${2:-}" ]]; then
+                echo -e "${RED}❌ Instance name is required for --delete${NC}"
+                echo "Usage: $0 --delete <instance-name>"
+                exit 1
+            fi
+            delete_instance "$2"
             ;;
         "")
             interactive_setup

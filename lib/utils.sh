@@ -211,7 +211,7 @@ pm2_process_exists() {
 # Get PM2 process status
 get_pm2_process_status() {
     local instance_name="$1"
-    pm2 describe "$instance_name" 2>/dev/null | jq -r '.[0].pm2_env.status' 2>/dev/null || echo "not found"
+    pm2 jlist 2>/dev/null | jq -r ".[] | select(.name==\"$instance_name\") | .pm2_env.status" 2>/dev/null || echo "not found"
 }
 
 
